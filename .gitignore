@@ -1,0 +1,22 @@
+# 元データと出力（ODbL のデータはリポジトリに入れない）
+/data/
+/tiles*/
+*.osm.pbf
+*.osm.pbf.part
+*.osm
+*.o5m
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
+
+# OS・エディタ
+.DS_Store
+.idea/
+.vscode/
