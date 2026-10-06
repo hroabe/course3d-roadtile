@@ -30,8 +30,13 @@ PLACE_KINDS = (
 )
 PLACE_CODE = {k: i for i, k in enumerate(PLACE_KINDS)}
 
+# 鉄道の線の種類（地図に描くだけ。道路網には入れない）。並び順が番号。
+RAIL_KINDS = ('rail', 'narrow_gauge', 'light_rail', 'subway', 'monorail', 'tram', 'funicular', 'aerialway')
+RAIL_CODE = {k: i for i, k in enumerate(RAIL_KINDS)}
+_RAIL_SERVICE_SKIP = frozenset(('yard', 'siding', 'spur', 'crossover'))
+
 # 絞り込みに使うキー（このキーのどれかを持つものだけを読む）
-WAY_KEYS = ('highway', 'amenity', 'leisure', 'tourism', 'place', 'railway', 'natural', 'mountain_pass')
+WAY_KEYS = ('highway', 'amenity', 'leisure', 'tourism', 'place', 'railway', 'aerialway', 'natural', 'mountain_pass')
 NODE_KEYS = ('place', 'railway', 'natural', 'mountain_pass', 'highway', 'junction', 'amenity', 'leisure', 'tourism')
 
 _NO = frozenset(('no', 'false', '0'))
@@ -107,3 +112,28 @@ def place_kind(tags, node=True):
     if hw in ('services', 'rest_area'):
         return PLACE_CODE['rest_area']
     return None
+
+
+def rail_attrs(tags):
+    """地図に描く鉄道の線なら (種類, 印) を、そうでなければ None を返す。印は橋 1・トンネル 2 だけ。
+
+    廃線・工事中・計画中、操車場や側線（service=yard・siding・spur・crossover）は入れない。
+    ロープウェイ・ゴンドラ（aerialway=cable_car・gondola）は aerialway として入れる。
+    """
+    v = tags.get('railway')
+    if v in RAIL_CODE and v != 'aerialway':
+        kind = RAIL_CODE[v]
+    elif tags.get('aerialway') in ('cable_car', 'gondola'):
+        kind = RAIL_CODE['aerialway']
+    else:
+        return None
+    if tags.get('service') in _RAIL_SERVICE_SKIP or tags.get('area') == 'yes':
+        return None
+    f = 0
+    b = tags.get('bridge')
+    if b and b not in _NO:
+        f |= F_BRIDGE
+    t = tags.get('tunnel')
+    if t and t not in _NO:
+        f |= F_TUNNEL
+    return kind, f

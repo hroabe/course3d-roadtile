@@ -21,13 +21,14 @@ import osmium.filter as F
 
 from . import __version__
 from .encode import FORMAT_VERSION, encode_tile, gzip_bytes
-from .tags import FLAGS, NODE_KEYS, PLACE_KINDS, ROAD_KINDS, WAY_KEYS, place_kind, road_attrs
+from .tags import FLAGS, NODE_KEYS, PLACE_KINDS, RAIL_KINDS, ROAD_KINDS, WAY_KEYS, place_kind, rail_attrs, road_attrs
 from .tiles import N, Z, tile_x7, tile_y7, tiles_in_bbox, tiles_xy7
 
 UNDEF = 2147483647          # osmium の「座標なし」
 CHUNK_VERTS = 500_000       # まとめて計算する頂点の数
 BUCKET_SHIFT = 4            # 一時ファイルは 16×16 マス（ズーム8）ずつ
 BATCH = 2048                # 一時ファイルにまとめて書く記録の数
+RAIL_PART = 64              # 鉄道の線は、この頂点数ずつに分けてマスに入れる
 FORMAT_NAME = 'course3d-roadtile'
 
 
@@ -97,14 +98,15 @@ def source_info(pbf, date=None):
 def collect_refs(pbf, log=_log_default):
     """(交差点のノード ID, 座標が要るノード ID) を、どちらも小さい順の numpy 配列で返す。"""
     road = array.array('q')   # 道路の各頂点＋両端をもう1回ずつ。2回以上出てくれば区切り点
-    other = array.array('q')  # 面の施設の頂点（座標だけ要る）
+    other = array.array('q')  # 面の施設と鉄道の頂点（座標だけ要る）
     n_ways = 0
     fp = osmium.FileProcessor(str(pbf), osmium.osm.WAY).with_filter(F.KeyFilter(*WAY_KEYS))
     for w in fp:
         tags = w.tags
         is_road = road_attrs(tags) is not None
         is_place = place_kind(tags, node=False) is not None
-        if not (is_road or is_place):
+        is_rail = rail_attrs(tags) is not None
+        if not (is_road or is_place or is_rail):
             continue
         refs = [n.ref for n in w.nodes]
         if is_road and len(refs) >= 2:
@@ -113,6 +115,8 @@ def collect_refs(pbf, log=_log_default):
             road.append(refs[-1])
             n_ways += 1
         if is_place and len(refs) >= 4 and refs[0] == refs[-1]:
+            other.extend(refs)
+        if is_rail and len(refs) >= 2:
             other.extend(refs)
     a = np.frombuffer(road, dtype=np.int64)  # 写さずにその場で並べ替える（メモリを倍にしない）
     a.sort()
@@ -293,12 +297,44 @@ def _flush(c, junc, buckets, st):
             buckets.put(a, bb, rec)
 
 
+def _emit_rail(way_id, attrs, pts, buckets, st):
+    """鉄道の線を RAIL_PART 頂点ずつ（端の点は重ねる）に分け、通るマスすべてに書く。座標のない点で線を切る。"""
+    kind, flags = attrs
+    runs, cur = [], []
+    for _, x, y in pts:
+        if x == UNDEF or y == UNDEF:
+            if len(cur) >= 2:
+                runs.append(cur)
+            cur = []
+        else:
+            cur.append((x, y))
+    if len(cur) >= 2:
+        runs.append(cur)
+    part = 0
+    for run in runs:
+        for s in range(0, len(run) - 1, RAIL_PART - 1):
+            seg = run[s:s + RAIL_PART]
+            xs7 = np.array([p[0] for p in seg], dtype=np.int64)
+            ys7 = np.array([p[1] for p in seg], dtype=np.int64)
+            tx, ty = tiles_xy7(xs7, ys7)
+            txl, tyl = tx.tolist(), ty.tolist()
+            tiles = _cover(txl, tyl, 0, len(seg) - 1)
+            if buckets.rng is not None:
+                tiles = [t for t in tiles if buckets.inside(*t)]
+            if tiles:
+                rec = (2, way_id, part, kind, flags, ((xs7 + 50) // 100).tolist(), ((ys7 + 50) // 100).tolist())
+                for a, b in tiles:
+                    buckets.put(a, b, rec)
+                st['railParts'] += 1
+            part += 1
+
+
 def emit_ways(pbf, junc, need_box, buckets, node_store='flex_mem', log=_log_default):
     """道をもう一度読み、区切った区間と面の施設を一時ファイルに書く。
 
     need_box は {'need': 配列}。読み込みの絞り込みを作ったあとで配列を手放すため、箱に入れて渡す。
     """
-    st = {'edges': 0, 'multiTileEdges': 0, 'droppedEdges': 0, 'placeWays': 0}
+    st = {'edges': 0, 'multiTileEdges': 0, 'droppedEdges': 0, 'placeWays': 0, 'railParts': 0}
     need = need_box.pop('need')
     idf = F.IdFilter(need)  # 座標が要るノードだけを覚える
     del need
@@ -316,7 +352,8 @@ def emit_ways(pbf, junc, need_box, buckets, node_store='flex_mem', log=_log_defa
             tags = w.tags
             attrs = road_attrs(tags)
             pk = place_kind(tags, node=False)
-            if attrs is None and pk is None:
+            ra = rail_attrs(tags)
+            if attrs is None and pk is None and ra is None:
                 continue
             pts = [(n.ref, n.x, n.y) for n in w.nodes]
             if attrs is not None and len(pts) >= 2:
@@ -332,12 +369,14 @@ def emit_ways(pbf, junc, need_box, buckets, node_store='flex_mem', log=_log_defa
                     buckets.put(tile_x7(cx), tile_y7(cy),
                                 (1, pk, tags.get('name'), (cx + 50) // 100, (cy + 50) // 100, 1, w.id))
                     st['placeWays'] += 1
+            if ra is not None and len(pts) >= 2:
+                _emit_rail(w.id, ra, pts, buckets, st)
         _flush(chunk, junc, buckets, st)
     finally:
         reader.close()
     del handlers, store
     log(f'  区間 {st["edges"]:,}（マスをまたぐもの {st["multiTileEdges"]:,}、座標がなく落としたもの {st["droppedEdges"]:,}）、'
-        f'面の施設 {st["placeWays"]:,}')
+        f'面の施設 {st["placeWays"]:,}、鉄道の線 {st["railParts"]:,} 本')
     return st
 
 
@@ -376,11 +415,11 @@ def write_tiles(buckets, outdir, log=_log_default):
         for tx, ty, rec in buckets.read(key):
             g = groups.get((tx, ty))
             if g is None:
-                g = groups[(tx, ty)] = ([], [])
-            g[0 if rec[0] == 0 else 1].append(rec[1:])
+                g = groups[(tx, ty)] = ([], [], [])
+            g[rec[0]].append(rec[1:])
         for tx, ty in sorted(groups):
-            edges, places = groups[(tx, ty)]
-            data = gzip_bytes(encode_tile(tx, ty, Z, edges, places))
+            edges, places, rails = groups[(tx, ty)]
+            data = gzip_bytes(encode_tile(tx, ty, Z, edges, places, rails))
             path = outdir / tile_relpath(tx, ty)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
@@ -450,12 +489,13 @@ def build(pbf, out_root, *, date=None, bbox=None, node_store='flex_mem', force=F
         'roadKinds': list(ROAD_KINDS),
         'flags': FLAGS,
         'placeKinds': list(PLACE_KINDS),
+        'railKinds': list(RAIL_KINDS),
         'attribution': '© OpenStreetMap contributors',
         'license': 'ODbL-1.0',
         'counts': {'tiles': len(tiles), 'bytes': sum(t[2] for t in tiles),
                    'edgeRecords': sum(t[4] for t in tiles), 'places': sum(t[5] for t in tiles),
                    'edges': st2['edges'], 'multiTileEdges': st2['multiTileEdges'],
-                   'droppedEdges': st2['droppedEdges'], 'roadWays': st1['roadWays']},
+                   'droppedEdges': st2['droppedEdges'], 'roadWays': st1['roadWays'], 'railParts': st2['railParts']},
         'tiles': tiles,
     }
     (partial / 'manifest.json').write_text(manifest_text(m), encoding='utf-8')

@@ -22,12 +22,12 @@ def read_tile(version_dir, x, y):
 def load_area(version_dir, bbox=None):
     """範囲にかかるマスを読み、ノード ID でつなぎ合わせる。
 
-    返り値: {'nodes': {id: (x, y)}, 'edges': {(way, seg): edge}, 'places': [...], 'tiles': [(x, y)]}
-    同じ区間が複数のマスに入っているときは1つにまとめる（中身が違えば ValueError）。
+    返り値: {'nodes': {id: (x, y)}, 'edges': {(way, seg): edge}, 'places': [...], 'rails': {(way, part): rail}, 'tiles': [(x, y)]}
+    同じ区間・同じ鉄道の線が複数のマスに入っているときは1つにまとめる（中身が違えば ValueError）。
     """
     m = load_manifest(version_dir)
     rng = tiles_in_bbox(*bbox) if bbox else None
-    nodes, edges, places, used = {}, {}, [], []
+    nodes, edges, places, rails, used = {}, {}, [], {}, []
     for x, y, *_ in m['tiles']:
         if rng and not (rng[0] <= x <= rng[2] and rng[1] <= y <= rng[3]):
             continue
@@ -43,7 +43,11 @@ def load_area(version_dir, bbox=None):
             if old != e:
                 raise ValueError(f'edge {key} differs in tile {x}/{y}')
         places += t['places']
-    return {'nodes': nodes, 'edges': edges, 'places': places, 'tiles': used}
+        for r in t['rails']:
+            old = rails.setdefault((r[0], r[1]), r)
+            if old != r:
+                raise ValueError(f'rail {(r[0], r[1])} differs in tile {x}/{y}')
+    return {'nodes': nodes, 'edges': edges, 'places': places, 'rails': rails, 'tiles': used}
 
 
 def verify(version_dir, deep=False):
@@ -81,6 +85,10 @@ def verify(version_dir, deep=False):
             for e in t['edges']:
                 if e[4] >= len(m['roadKinds']):
                     problems.append(f'{rel}: 道の種類の番号が範囲外（way {e[0]}）')
+                    break
+            for r in t['rails']:
+                if r[2] >= len(m.get('railKinds', [])) or len(r[4]) < 2:
+                    problems.append(f'{rel}: 鉄道の線がおかしい（way {r[0]}）')
                     break
     for p in sorted((version_dir / str(m['zoom'])).rglob('*.json.gz')):
         rel = p.relative_to(version_dir).as_posix()
