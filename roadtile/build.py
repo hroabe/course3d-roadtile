@@ -36,12 +36,37 @@ def _log_default(msg):
 
 
 def _peak_mb():
+    """これまでに使ったメモリの最大（MB）。分からなければ nan。"""
     try:
+        if sys.platform == 'win32':
+            return _peak_mb_windows()
         import resource
         r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return r / 1024 / 1024 if sys.platform == 'darwin' else r / 1024
-    except Exception:  # Windows など
+    except Exception:
         return float('nan')
+
+
+def _peak_mb_windows():
+    import ctypes
+    from ctypes import wintypes
+
+    class Counters(ctypes.Structure):  # PROCESS_MEMORY_COUNTERS
+        _fields_ = [('cb', wintypes.DWORD), ('PageFaultCount', wintypes.DWORD),
+                    ('PeakWorkingSetSize', ctypes.c_size_t), ('WorkingSetSize', ctypes.c_size_t),
+                    ('QuotaPeakPagedPoolUsage', ctypes.c_size_t), ('QuotaPagedPoolUsage', ctypes.c_size_t),
+                    ('QuotaPeakNonPagedPoolUsage', ctypes.c_size_t), ('QuotaNonPagedPoolUsage', ctypes.c_size_t),
+                    ('PagefileUsage', ctypes.c_size_t), ('PeakPagefileUsage', ctypes.c_size_t)]
+
+    kernel32, psapi = ctypes.WinDLL('kernel32'), ctypes.WinDLL('psapi')
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    c = Counters()
+    c.cb = ctypes.sizeof(Counters)
+    if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(c), c.cb):
+        return float('nan')
+    return c.PeakWorkingSetSize / 1024 / 1024
 
 
 def _sha256_file(path):

@@ -49,3 +49,8 @@ def test_cli_build_verify_info_tile(tmp_path, capsys):
     assert 'マス 2 枚' in capsys.readouterr().out
     assert main(['tile', '139.0', '35.2']) == 0
     assert capsys.readouterr().out.startswith('3629/1619')
+
+
+def test_peak_memory_is_reported():
+    from roadtile.build import _peak_mb
+    assert _peak_mb() > 10  # Windows・Mac・Linux のどれでも MB で取れる

@@ -40,6 +40,24 @@ course3d-roadtile info tiles/2026-10-05                   # 大きさと、大�
 - 範囲を絞って試すときは `--bbox 西,南,東,北` を付けます。
 - `course3d-roadtile tile 138.75 35.40` で、その地点が入るマスの番号と範囲を表示します。
 
+## Windows（PowerShell）で動かすとき
+
+Python は `py --version` で 3.10 以上が出ればそのまま使えます（なければ `winget install Python.Python.3.13`）。仮想環境を有効にせず、中のコマンドを直接呼ぶ書き方にしています（スクリプトの実行が止められている PC でも動くように）。
+
+```powershell
+git clone https://github.com/hroabe/course3d-roadtile
+cd course3d-roadtile
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+$env:PYTHONUTF8 = "1"                                     # 日本語の表示を UTF-8 にそろえる
+
+.\.venv\Scripts\course3d-roadtile.exe fetch
+.\.venv\Scripts\course3d-roadtile.exe build data\japan-latest.osm.pbf --out tiles
+Get-ChildItem tiles                                        # 版のフォルダ名（日付）を確かめる
+.\.venv\Scripts\course3d-roadtile.exe info tiles\2026-10-05
+.\.venv\Scripts\course3d-roadtile.exe verify tiles\2026-10-05 --deep
+```
+
 ## 開発
 
 ```bash
