@@ -12,8 +12,11 @@ from roadtile.tiles import tile_x7, tile_y7
 TIMESTAMP = '2026-10-05T21:00:00Z'
 
 
-def write_pbf(path, nodes, ways, timestamp=TIMESTAMP):
-    """nodes: {id: (lon7, lat7, tags)}、ways: [(id, [ノード ID], tags)]。座標は 1e7 倍の整数。"""
+def write_pbf(path, nodes, ways, relations=(), timestamp=TIMESTAMP):
+    """nodes: {id: (lon7, lat7, tags)}、ways: [(id, [ノード ID], tags)]、relations: [(id, [('w', ID, role)], tags)]。
+
+    座標は 1e7 倍の整数。
+    """
     h = osmium.io.Header()
     if timestamp:
         h.set('osmosis_replication_timestamp', timestamp)
@@ -23,6 +26,8 @@ def write_pbf(path, nodes, ways, timestamp=TIMESTAMP):
         w.add_node(osmium.osm.mutable.Node(id=nid, location=(x / 1e7, y / 1e7), tags=tags))
     for wid, refs, tags in sorted(ways, key=lambda r: r[0]):
         w.add_way(osmium.osm.mutable.Way(id=wid, nodes=refs, tags=tags))
+    for rid, members, tags in sorted(relations, key=lambda r: r[0]):
+        w.add_relation(osmium.osm.mutable.Relation(id=rid, members=members, tags=tags))
     w.close()
 
 

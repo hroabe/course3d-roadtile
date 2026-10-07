@@ -6,6 +6,7 @@ OpenStreetMap の日本全体のデータから、大会コース3D スタジオ
 - 区間の両端には OpenStreetMap のノード ID が付いていて、マスの境目はその ID でつながります。
 - 道の種類、名前・路線番号、橋・トンネル・一方通行・通行禁止・自動車専用の印と、ポイントの名前の候補（地名・駅・山頂・交差点名・施設）も入れます。
 - 地図に描くための鉄道の線（ロープウェイを含む）も入れます（0.2.0 から）。
+- 地図に描くための川の線（川・運河・沢）と水面（湖・池・ダム湖・川の面）も入れます。名前のある大きな湖は、名前の候補にも入れます（0.3.0 から）。
 - 目録（manifest.json）に、版の日付とマスごとの大きさ・ハッシュを書きます。
 
 形式の正本は [docs/FORMAT.md](docs/FORMAT.md)、加工の手順は [docs/PIPELINE.md](docs/PIPELINE.md) です。
@@ -19,7 +20,7 @@ OpenStreetMap の日本全体のデータから、大会コース3D スタジオ
 - Python 3.10 以上
 - メモリ 16GB 以上を推奨
 - ディスクの空き 5GB ほど（元ファイル 2.5GB、出力 約0.4GB、一時ファイル）
-- 日本全体の加工は、Windows の PC で約21分、メモリの最大 約6.4GB でした（[docs/PIPELINE.md](docs/PIPELINE.md)）
+- 日本全体の加工は、Windows の PC で約21分、メモリの最大 約6.4GB でした（0.2.0。0.3.0 は川・水面のぶん増えます。[docs/PIPELINE.md](docs/PIPELINE.md)）
 
 ```bash
 git clone https://github.com/hroabe/course3d-roadtile

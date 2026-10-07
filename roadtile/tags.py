@@ -27,6 +27,7 @@ PLACE_KINDS = (
     'city', 'town', 'village', 'suburb', 'quarter', 'neighbourhood', 'hamlet', 'locality',
     'station', 'peak', 'saddle', 'junction',
     'school', 'townhall', 'worship', 'park', 'sports', 'attraction', 'rest_area',
+    'lake',  # 0.3.0 から。名前のある大きな水面（build.py の LAKE_MIN_M2 以上）
 )
 PLACE_CODE = {k: i for i, k in enumerate(PLACE_KINDS)}
 
@@ -35,8 +36,26 @@ RAIL_KINDS = ('rail', 'narrow_gauge', 'light_rail', 'subway', 'monorail', 'tram'
 RAIL_CODE = {k: i for i, k in enumerate(RAIL_KINDS)}
 _RAIL_SERVICE_SKIP = frozenset(('yard', 'siding', 'spur', 'crossover'))
 
+# 川の線の種類（地図に描くだけ）。並び順が番号。
+RIVER_KINDS = ('river', 'canal', 'stream')
+RIVER_CODE = {k: i for i, k in enumerate(RIVER_KINDS)}
+
+# 水面の種類。並び順が番号。
+WATER_KINDS = ('lake', 'reservoir', 'pond', 'river', 'canal', 'water')
+WATER_CODE = {k: i for i, k in enumerate(WATER_KINDS)}
+_WATER_OF = {
+    'lake': 'lake', 'oxbow': 'lake', 'lagoon': 'lake',
+    'reservoir': 'reservoir',
+    'pond': 'pond', 'basin': 'pond', 'fishpond': 'pond',
+    'river': 'river', 'stream_pool': 'river', 'rapids': 'river',
+    'canal': 'canal', 'ditch': 'canal', 'drain': 'canal', 'stream': 'canal', 'moat': 'canal',
+}
+_WATER_SKIP = frozenset(('wastewater',))
+F_INTERMITTENT = 1  # 川の線・水面の印：時期によって水がない
+
 # 絞り込みに使うキー（このキーのどれかを持つものだけを読む）
-WAY_KEYS = ('highway', 'amenity', 'leisure', 'tourism', 'place', 'railway', 'aerialway', 'natural', 'mountain_pass')
+WAY_KEYS = ('highway', 'amenity', 'leisure', 'tourism', 'place', 'railway', 'aerialway', 'natural', 'mountain_pass',
+            'waterway')
 NODE_KEYS = ('place', 'railway', 'natural', 'mountain_pass', 'highway', 'junction', 'amenity', 'leisure', 'tourism')
 
 _NO = frozenset(('no', 'false', '0'))
@@ -137,3 +156,38 @@ def rail_attrs(tags):
     if t and t not in _NO:
         f |= F_TUNNEL
     return kind, f
+
+
+def _intermittent(tags):
+    return F_INTERMITTENT if tags.get('intermittent') == 'yes' else 0
+
+
+def river_attrs(tags):
+    """地図に描く川の線なら (種類, 印) を、そうでなければ None を返す。
+
+    waterway=river・canal・stream。暗渠（tunnel が no 以外。culvert を含む）と area=yes は入れない。
+    用水路・排水路（ditch・drain）は数が多く地図ではほとんど見えないので入れない。
+    """
+    kind = RIVER_CODE.get(tags.get('waterway'))
+    if kind is None or tags.get('area') == 'yes':
+        return None
+    t = tags.get('tunnel')
+    if t and t not in _NO:
+        return None
+    return kind, _intermittent(tags)
+
+
+def water_attrs(tags):
+    """水面（閉じた道・マルチポリゴンのリレーション）なら (種類, 印) を、そうでなければ None を返す。
+
+    natural=water（water=wastewater を除く）と、古い書き方の waterway=riverbank。
+    リレーションかどうか（type=multipolygon）は呼ぶ側で確かめる。
+    """
+    if tags.get('natural') == 'water':
+        w = tags.get('water')
+        if w in _WATER_SKIP:
+            return None
+        return WATER_CODE[_WATER_OF.get(w, 'water')], _intermittent(tags)
+    if tags.get('waterway') == 'riverbank':
+        return WATER_CODE['river'], _intermittent(tags)
+    return None

@@ -22,12 +22,14 @@ def read_tile(version_dir, x, y):
 def load_area(version_dir, bbox=None):
     """範囲にかかるマスを読み、ノード ID でつなぎ合わせる。
 
-    返り値: {'nodes': {id: (x, y)}, 'edges': {(way, seg): edge}, 'places': [...], 'rails': {(way, part): rail}, 'tiles': [(x, y)]}
-    同じ区間・同じ鉄道の線が複数のマスに入っているときは1つにまとめる（中身が違えば ValueError）。
+    返り値: {'nodes': {id: (x, y)}, 'edges': {(way, seg): edge}, 'places': [...], 'rails': {(way, part): rail},
+             'rivers': {(way, part): river}, 'water': [(マス x, マス y, kind, flags, src, xs, ys)], 'tiles': [(x, y)]}
+    同じ区間・同じ鉄道や川の線が複数のマスに入っているときは1つにまとめる（中身が違えば ValueError）。
+    水面はマスごとに切り取ってあるので、まとめずに並べる。
     """
     m = load_manifest(version_dir)
     rng = tiles_in_bbox(*bbox) if bbox else None
-    nodes, edges, places, rails, used = {}, {}, [], {}, []
+    nodes, edges, places, rails, rivers, water, used = {}, {}, [], {}, {}, [], []
     for x, y, *_ in m['tiles']:
         if rng and not (rng[0] <= x <= rng[2] and rng[1] <= y <= rng[3]):
             continue
@@ -43,11 +45,14 @@ def load_area(version_dir, bbox=None):
             if old != e:
                 raise ValueError(f'edge {key} differs in tile {x}/{y}')
         places += t['places']
-        for r in t['rails']:
-            old = rails.setdefault((r[0], r[1]), r)
-            if old != r:
-                raise ValueError(f'rail {(r[0], r[1])} differs in tile {x}/{y}')
-    return {'nodes': nodes, 'edges': edges, 'places': places, 'rails': rails, 'tiles': used}
+        for name, store in (('rail', rails), ('river', rivers)):
+            for r in t[name + 's']:
+                old = store.setdefault((r[0], r[1]), r)
+                if old != r:
+                    raise ValueError(f'{name} {(r[0], r[1])} differs in tile {x}/{y}')
+        water += [(x, y) + w for w in t['water']]
+    return {'nodes': nodes, 'edges': edges, 'places': places, 'rails': rails, 'rivers': rivers, 'water': water,
+            'tiles': used}
 
 
 def verify(version_dir, deep=False):
@@ -89,6 +94,14 @@ def verify(version_dir, deep=False):
             for r in t['rails']:
                 if r[2] >= len(m.get('railKinds', [])) or len(r[4]) < 2:
                     problems.append(f'{rel}: 鉄道の線がおかしい（way {r[0]}）')
+                    break
+            for r in t['rivers']:
+                if r[2] >= len(m.get('riverKinds', [])) or len(r[4]) < 2:
+                    problems.append(f'{rel}: 川の線がおかしい（way {r[0]}）')
+                    break
+            for w in t['water']:
+                if w[0] >= len(m.get('waterKinds', [])) or len(w[3]) < 3:
+                    problems.append(f'{rel}: 水面の輪がおかしい（src {w[2]}）')
                     break
     for p in sorted((version_dir / str(m['zoom'])).rglob('*.json.gz')):
         rel = p.relative_to(version_dir).as_posix()

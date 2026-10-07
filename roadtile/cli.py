@@ -61,6 +61,9 @@ def main(argv=None):
         c = m['counts']
         print(f'版 {m["dataVersion"]}（元 {m["source"]["file"]}、{m["source"]["timestamp"]}）')
         print(f'マス {c["tiles"]:,} 枚、{c["bytes"] / 1e6:,.1f} MB、区間 {c["edges"]:,}、地名 {c["places"]:,}')
+        if 'riverParts' in c:  # 0.3.0 から
+            print(f'鉄道の線 {c["railParts"]:,}、川の線 {c["riverParts"]:,}、水面の輪 {c["waterRings"]:,}'
+                  f'（マスで切った部分 {c["waterPieces"]:,}、組み立てられなかった輪 {c["waterRingsBroken"]:,}）、湖の名前 {c["lakes"]:,}')
         print('大きいマス:')
         for x, y, size, _h, ne, npl in sorted(m['tiles'], key=lambda r: -r[2])[:a.top]:
             print(f'  {x}/{y}  {size / 1e6:6.2f} MB  区間 {ne:,}  地名 {npl:,}')
