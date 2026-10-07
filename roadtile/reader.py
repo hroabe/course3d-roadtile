@@ -103,6 +103,22 @@ def verify(version_dir, deep=False):
                 if w[0] >= len(m.get('waterKinds', [])) or len(w[3]) < 3:
                     problems.append(f'{rel}: 水面の輪がおかしい（src {w[2]}）')
                     break
+    pi = m.get('placeIndex')
+    if pi:  # 0.4.0 から
+        p = version_dir / pi['file']
+        if not p.is_file():
+            problems.append(f'{pi["file"]}: ファイルがない')
+        else:
+            data = p.read_bytes()
+            if len(data) != pi['bytes'] or hashlib.sha256(data).hexdigest() != pi['sha256']:
+                problems.append(f'{pi["file"]}: 大きさかハッシュが目録と違う')
+            elif deep:
+                from .placeindex import read_index
+                try:
+                    if len(read_index(version_dir)['places']) != pi['count']:
+                        problems.append(f'{pi["file"]}: 件数が目録と違う')
+                except Exception as e:  # 壊れたファイル
+                    problems.append(f'{pi["file"]}: 読めない（{e}）')
     for p in sorted((version_dir / str(m['zoom'])).rglob('*.json.gz')):
         rel = p.relative_to(version_dir).as_posix()
         if rel not in listed:

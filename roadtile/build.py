@@ -24,6 +24,7 @@ import osmium.filter as F
 from . import __version__
 from .encode import FORMAT_VERSION, encode_tile, gzip_bytes
 from .geom import area2, assemble_rings, centroid, clip_ring, simplify_line, simplify_ring
+from .placeindex import write_index
 from .tags import (FLAGS, NODE_KEYS, PLACE_CODE, PLACE_KINDS, RAIL_KINDS, RIVER_KINDS, ROAD_KINDS, WATER_CODE,
                    WATER_KINDS, WAY_KEYS, place_kind, rail_attrs, river_attrs, road_attrs, water_attrs)
 from .tiles import N, Z, tile_x7, tile_y7, tiles_in_bbox, tiles_xy7
@@ -544,7 +545,8 @@ def tile_relpath(x, y):
     return f'{Z}/{x}/{y}.json.gz'
 
 
-def write_tiles(buckets, outdir, log=_log_default):
+def write_tiles(buckets, outdir, log=_log_default, places_out=None):
+    """マスのファイルを書き、目録の行の並びを返す。places_out（list）を渡すと、地名 (kind, name, x, y) を足していく。"""
     outdir = Path(outdir)
     entries = []
     for key in buckets.keys():
@@ -556,6 +558,8 @@ def write_tiles(buckets, outdir, log=_log_default):
             g[rec[0]].append(rec[1:])
         for tx, ty in sorted(groups):
             edges, places, rails, rivers, water = groups[(tx, ty)]
+            if places_out is not None:
+                places_out.extend((p[0], p[1], p[2], p[3]) for p in places)
             data = gzip_bytes(encode_tile(tx, ty, Z, edges, places, rails, rivers, water))
             path = outdir / tile_relpath(tx, ty)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -612,8 +616,12 @@ def build(pbf, out_root, *, date=None, bbox=None, node_store='flex_mem', force=F
     st3 = emit_place_nodes(pbf, buckets, log)
     buckets.close()
     step('4/4 マスのファイルを書く')
-    tiles = write_tiles(buckets, partial, log)
+    places = []
+    tiles = write_tiles(buckets, partial, log, places)
     shutil.rmtree(partial / '.work')
+    pindex = write_index(partial, places, PLACE_KINDS)
+    del places
+    log(f'  地名の索引 {pindex["count"]:,} 件、{pindex["bytes"] / 1e6:,.1f} MB')
 
     m = {
         'format': FORMAT_NAME,
@@ -638,6 +646,7 @@ def build(pbf, out_root, *, date=None, bbox=None, node_store='flex_mem', force=F
                    'droppedEdges': st2['droppedEdges'], 'roadWays': st1['roadWays'], 'railParts': st2['railParts'],
                    'riverParts': st2['riverParts'], 'waterRings': st2['waterRings'], 'waterPieces': st2['waterPieces'],
                    'waterRingsBroken': st2['waterBroken'], 'lakes': st2['lakes']},
+        'placeIndex': pindex,
         'tiles': tiles,
     }
     (partial / 'manifest.json').write_text(manifest_text(m), encoding='utf-8')

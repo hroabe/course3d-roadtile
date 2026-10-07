@@ -37,6 +37,9 @@ def main(argv=None):
     i.add_argument('dir')
     i.add_argument('--top', type=int, default=10, help='大きいマスを何枚表示するか')
 
+    x = sub.add_parser('index', help='版のマスから地名の索引（places.json.gz）を作り、目録に書き足す（0.4.0 より前の版のため）')
+    x.add_argument('dir', help='版のフォルダ（tiles/2026-10-05 など）')
+
     t = sub.add_parser('tile', help='経度・緯度が入るマスの番号と範囲を表示する')
     t.add_argument('lon', type=float)
     t.add_argument('lat', type=float)
@@ -64,9 +67,21 @@ def main(argv=None):
         if 'riverParts' in c:  # 0.3.0 から
             print(f'鉄道の線 {c["railParts"]:,}、川の線 {c["riverParts"]:,}、水面の輪 {c["waterRings"]:,}'
                   f'（マスで切った部分 {c["waterPieces"]:,}、組み立てられなかった輪 {c["waterRingsBroken"]:,}）、湖の名前 {c["lakes"]:,}')
+        if m.get('placeIndex'):  # 0.4.0 から
+            print(f'地名の索引 {m["placeIndex"]["count"]:,} 件、{m["placeIndex"]["bytes"] / 1e6:,.1f} MB')
         print('大きいマス:')
         for x, y, size, _h, ne, npl in sorted(m['tiles'], key=lambda r: -r[2])[:a.top]:
             print(f'  {x}/{y}  {size / 1e6:6.2f} MB  区間 {ne:,}  地名 {npl:,}')
+    elif a.cmd == 'index':
+        from .build import manifest_text, tile_relpath
+        from .placeindex import places_of_tiles, write_index
+        from .reader import load_manifest
+        from pathlib import Path
+        m = load_manifest(a.dir)
+        meta = write_index(a.dir, places_of_tiles(a.dir, m, tile_relpath), m['placeKinds'])
+        m['placeIndex'] = meta
+        (Path(a.dir) / 'manifest.json').write_text(manifest_text(m), encoding='utf-8')
+        print(f'地名の索引 {meta["count"]:,} 件、{meta["bytes"] / 1e6:,.1f} MB を書きました')
     elif a.cmd == 'tile':
         from .tiles import tile_bounds, tile_of
         x, y = tile_of(a.lon, a.lat)
