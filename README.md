@@ -20,7 +20,7 @@ OpenStreetMap の日本全体のデータから、大会コース3D スタジオ
 - Python 3.10 以上
 - メモリ 16GB 以上を推奨
 - ディスクの空き 5GB ほど（元ファイル 2.5GB、出力 約0.4GB、一時ファイル）
-- 日本全体の加工は、Windows の PC で約21分、メモリの最大 約6.4GB でした（0.2.0。0.3.0 は川・水面のぶん増えます。[docs/PIPELINE.md](docs/PIPELINE.md)）
+- 日本全体の加工は、Windows の PC で約22分、メモリの最大 約8.4GB、出力 約0.41GB でした（0.3.0。[docs/PIPELINE.md](docs/PIPELINE.md)）
 
 ```bash
 git clone https://github.com/hroabe/course3d-roadtile
