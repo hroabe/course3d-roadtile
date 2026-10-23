@@ -1,4 +1,4 @@
-name: test
+name: 自動テスト（Python・複数OS）
 
 on:
   push:
